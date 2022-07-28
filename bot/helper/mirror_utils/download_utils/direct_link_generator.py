@@ -15,6 +15,7 @@ from urllib.parse import urlparse, unquote
 from json import loads as jsnloads
 from lk21 import Bypass
 from lxml import etree
+from time import sleep
 from cfscrape import create_scraper
 from bs4 import BeautifulSoup
 from base64 import standard_b64encode
@@ -115,7 +116,7 @@ def uptobox(url: str) -> str:
     """ Uptobox direct link generator
     based on https://github.com/jovanzers/WinTenCermin """
     try:
-        link = re_findall(r'\bhttps?://.*uptobox\.com\S+', url)[0]
+        link = re.findall(r'\bhttps?://.*uptobox\.com\S+', url)[0]
     except IndexError:
         raise DirectDownloadLinkException("No Uptobox links found\n")
     if UPTOBOX_TOKEN is None:
@@ -123,15 +124,28 @@ def uptobox(url: str) -> str:
         dl_url = link
     else:
         try:
-            link = re_findall(r'\bhttp?://.*uptobox\.com/dl\S+', url)[0]
+            link = re.findall(r'\bhttp?://.*uptobox\.com/dl\S+', url)[0]
             dl_url = link
         except:
-            file_id = re_findall(r'\bhttps?://.*uptobox\.com/(\w+)', url)[0]
+            file_id = re.findall(r'\bhttps?://.*uptobox\.com/(\w+)', url)[0]
             file_link = f'https://uptobox.com/api/link?token={UPTOBOX_TOKEN}&file_code={file_id}'
-
-            req = rget(file_link)
+            req = requests.get(file_link)
             result = req.json()
-            dl_url = result['data']['dlLink']
+            if result['message'].lower() == 'success':
+                dl_url = result['data']['dlLink']
+            elif result['message'].lower() == 'waiting needed':
+                waiting_time = result["data"]["waiting"] + 1
+                waiting_token = result["data"]["waitingToken"]
+                sleep(waiting_time)
+                req2 = requests.get(f"{file_link}&waitingToken={waiting_token}")
+                result2 = req2.json()
+                dl_url = result2['data']['dlLink']
+            elif result['message'].lower() == 'you need to wait before requesting a new download link':
+                cooldown = divmod(result['data']['waiting'], 60)
+                raise DirectDownloadLinkException(f"ERROR: Uptobox sedang limit mohon tunggu {cooldown[0]} menit {cooldown[1]} detik.")
+            else:
+                LOGGER.info(f"UPTOBOX_ERROR: {result}")
+                raise DirectDownloadLinkException(f"ERROR: {result['message']}")
     return dl_url
 
 def mediafire(url: str) -> str:
